@@ -1,12 +1,18 @@
 
-// TODO - make gaps in core genome for junctions using local pangenome size
+/* TODO 
+- make gaps in core genome for junctions using local pangenome size
+- make an alignment viewer for when you click on a block
+- work on annotation
+- add original e coli dataset
+- general clean up
+*/
 
 const path_view_frac = 0;//0.25
 const vert_bez = 0.05; //vertica bezier offset
 const core_only = true;
 const remove_dups = false;
-const draw_core_only = true;
-const show_paths_always = false;
+const draw_core_only = false;
+const show_paths_always = true;
 const hover_stroke_width = core_only ? 4 : 2;
 const colors = {
   'forward_path': 'black',
@@ -26,30 +32,65 @@ const seaborn_colorblind = [
   "#56b4e9"   //A light blue
 ]
 
+const greys = [
+  '#AAA',
+  '#666'
+]
+
 let focal_strain;
 let second_strain;
 let circlegraph;
 let graph_data;
 let treeObj;
+let clickedJunction;
 
 const dset_names = [
-  'ecoli_ST69', 
   'kpneumoniae_ST512',
   'mtuberculosis_ST276',
   'paeruginosa_ST235',
-  'psyr_psa3pan',
+  'ecoli_ST69',
   'saureus_ST1'
 ]
 
 const dsets = dset_names.reduce((td, n) => {
   td[n] = {
-    'treefile': '../datasets/'+n+'/dsets/'+n+'/pangraph/coretree.nwk',
-    'graphfile': '../datasets/'+n+'/dsets/'+n+'/pangraph/graph.json'
+    'treefile': './example_data/'+n+'/coretree.nwk',
+    'graphfile': './example_data/annotated_'+n+'.json'
   }
   return td;
 }, {})
 
-const use = 'psyr_psa3pan';
+dsets['pneumo'] = {
+  'treefile': '../spneumo/spneumoniae_gpsc1_clean.nwk',
+  'graphfile': '../spneumo/polished_spneumo_GPSC1_graph_annot.json'
+}
+
+const use = 'saureus_ST1';
+const use_test_data = false;
+let annotated = true;
+
+
+function show_about() {
+  var about_t = d3.select("#about_text");
+
+  // Toggle the display property between 'none' and 'block'
+  if (about_t.style("display") === "block") {
+      about_t.style("display", "none");
+  } else {
+      about_t.style("display", "block");
+  }
+
+  // Scroll the page to the #about_text element
+  var about_t_position = about_t.node().getBoundingClientRect().top + window.scrollY;
+  
+  d3.select("html, body")
+    .transition()
+    .duration(1000)
+    .tween("scroll", function() {
+        var i = d3.interpolateNumber(window.scrollY, about_t_position);
+        return function(t) { window.scrollTo(0, i(t)); };
+    });
+}
 
 function point_on_circle(cx, cy, r, theta) {
   return [cx+Math.cos(theta)*r, cy+Math.sin(theta)*r];
@@ -59,40 +100,58 @@ function extend_off_circle(cx, cy, p, extend) {
   return [(p[0]-cx)*extend+cx, (p[1]-cy)*extend+cy];
 }
 
-  // Newick Parser Function
-  function parseNewick(newick) {
-    var ancestors = [];
-    var tree = {};
-    var tokens = newick.split(/\s*(;|\(|\)|,|:)\s*/);
-    for (var i = 0; i < tokens.length; i++) {
-        var token = tokens[i];
-        switch (token) {
-            case '(': // new branchset
-                var subtree = {};
-                tree.children = [subtree];
-                ancestors.push(tree);
-                tree = subtree;
-                break;
-            case ',': // another branch
-                var subtree = {};
-                ancestors[ancestors.length - 1].children.push(subtree);
-                tree = subtree;
-                break;
-            case ')': // end current branchset
-                tree = ancestors.pop();
-                break;
-            case ':': // ignore lengths
-                break;
-            default:
-                var x = tokens[i - 1];
-                if (x == ')' || x == '(' || x == ',') {
-                    tree.name = token;
-                } else if (x == ':') {
-                    tree.length = parseFloat(token);
-                }
-        }
-    }
-    return tree;
+let tooltip;
+
+function setup_tooltip() {
+  tooltip = d3.select('#svg_div').append('div')
+    .attr('class', 'WOW_tooltip')
+    .html('<h2>yeah</h2><p>uhhuh</p>');
+}
+
+function show_tooltip(x, y, text) {
+  tooltip.style('left', String(x+20)+'px');
+  tooltip.style('display', 'block').html(text);
+  tooltip.style('top', String(y+10)+'px');
+}
+
+function hide_tooltip() {
+  tooltip.style('display', 'none');
+}
+
+// Newick Parser Function
+function parseNewick(newick) {
+  var ancestors = [];
+  var tree = {};
+  var tokens = newick.split(/\s*(;|\(|\)|,|:)\s*/);
+  for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      switch (token) {
+          case '(': // new branchset
+              var subtree = {};
+              tree.children = [subtree];
+              ancestors.push(tree);
+              tree = subtree;
+              break;
+          case ',': // another branch
+              var subtree = {};
+              ancestors[ancestors.length - 1].children.push(subtree);
+              tree = subtree;
+              break;
+          case ')': // end current branchset
+              tree = ancestors.pop();
+              break;
+          case ':': // ignore lengths
+              break;
+          default:
+              var x = tokens[i - 1];
+              if (x == ')' || x == '(' || x == ',') {
+                  tree.name = token;
+              } else if (x == ':') {
+                  tree.length = parseFloat(token);
+              }
+      }
+  }
+  return tree;
 }
 
 function max_tree_length(tree) {
@@ -133,7 +192,7 @@ class SimpleTree {
     console.log(this.tree_len);
     console.log(this.tree_nodes);
     console.log(this.tree);
-    this.svg = d3.select("#main_div").append('svg')
+    this.svg = d3.select("#svg_div").append('svg')
       .attr('id', 'circlegraph_svg')
       .attr('width', this.w)
       .attr('height', this.h)
@@ -203,6 +262,7 @@ class SimpleTree {
         });
         //console.log(this.label_size)
         this.svg.append('text')
+          .style('cursor', 'default')
           .attr('x', this.xscale(x)+15)
           .attr('y', this.yscale(y_center)+this.label_size/3)
           .attr('font-size', this.label_size)
@@ -216,40 +276,67 @@ class SimpleTree {
 
     this.svg.selectAll('.junction_inset_subblock').remove();
     this.svg.selectAll('.junction_inset_subtext').remove();
+    this.svg.select('#junction_inset_x_axis').remove();
+    if (j) {
+      const junc_xscale = d3.scaleLinear()
+        .domain([0, j.maxLen])
+        .range([this.max_x+100, this.w-20])
 
-    const junc_xscale = d3.scaleLinear()
-      .domain([0, j.maxLen])
-      .range([this.max_x+50, this.w-20])
+      const xAxis = d3.axisBottom(junc_xscale)
+        .ticks(10, "~s");  // Adjust tick formatting as needed
 
-    for (let strain of Object.keys(this.strain_locations)) {
-      let top = this.yscale(this.strain_locations[strain]-0.4);
-      let h = this.yscale(this.strain_locations[strain]+0.4)-this.yscale(this.strain_locations[strain]-0.4);
-      if (j[strain].length == 1) { // structural change, no junction
-        this.svg.append('text')
-          .attr('class', 'junction_inset_subtext')
-          .attr('x', junc_xscale(0))
-          .attr('y', top+h)
-          .attr('font-size', h*1.3)
-          .attr('fill', 'black')
-          .text(j[strain][0])
-      } else {
-        let running_sum = 0;
-        for (let block_id of j[strain]) {
-          let left = junc_xscale(running_sum);
-          this.svg.append('rect')
-            .datum(circlegraph.block_hash[block_id])
-            .attr('class', 'junction_inset_subblock')
-            .attr('x', left)
-            .attr('width', (d) => junc_xscale(d.sequence.length+running_sum)-left)
-            .attr('y', top)
-            .attr('height', h)
-            .attr('fill', circlegraph.colormap[block_id])
-            .attr('stroke', '#FFF')
-            .attr('stroke-width', 0.5)
-          running_sum += circlegraph.block_hash[block_id].sequence.length;
+      // Append x-axis to the SVG
+      this.svg.append("g")
+        .attr('id', 'junction_inset_x_axis')
+        .attr("transform", `translate(0, ${this.h-20})`)  // Position the x-axis
+        .call(xAxis);
+
+      for (let strain of Object.keys(this.strain_locations)) {
+        let top = this.yscale(this.strain_locations[strain]-0.4);
+        let h = this.yscale(this.strain_locations[strain]+0.4)-this.yscale(this.strain_locations[strain]-0.4);
+        if (j[strain].length == 1) { // structural change, no junction
+          this.svg.append('text')
+            .attr('class', 'junction_inset_subtext')
+            .attr('x', junc_xscale(0))
+            .attr('y', top+h)
+            .attr('font-size', h*1.3)
+            .attr('fill', 'black')
+            .text(j[strain][0])
+        } else {
+          let running_sum = 0;
+          for (let block_id of j[strain]) {
+            let left = junc_xscale(running_sum);
+            this.svg.append('rect')
+              .datum(circlegraph.block_hash[block_id])
+              .attr('class', 'junction_inset_subblock')
+              .attr('x', left)
+              .attr('width', (d) => junc_xscale(d.sequence.length+running_sum)-left)
+              .attr('y', top)
+              .attr('height', h)
+              .attr('fill', circlegraph.colormap[block_id])
+              .attr('stroke', '#FFF')
+              .attr('stroke-width', 0.5)
+            running_sum += circlegraph.block_hash[block_id].sequence.length;
+          }
         }
       }
+      d3.selectAll('.junction_inset_subblock')
+        .on('mouseover', (e, d) => {
+          d3.selectAll('.junction_indicator')
+            .attr('opacity', (td) => d.in_junctions.indexOf(td.junction)>-1 ? 1 : 0);
+        })
+      if (annotated) {
+        d3.selectAll('.junction_inset_subblock')
+          .on('mousemove', (e, d) => {
+            show_tooltip(e.offsetX, e.offsetY, d.annotations.join('\n'))
+          })
+          .on('mouseout', (e, d) => {
+            d3.selectAll('.junction_indicator').attr('opacity', 0)
+            hide_tooltip();
+          })
+      }
     }
+
   }
 }
 
@@ -308,12 +395,12 @@ class CircleGraph {
     console.log('constructing...');
     console.log(pangraph_json_data);
 
-    this.focal_r = 200;
+    this.focal_r = 160;
     this.block_h = 20;
     this.off_block_h = 8;
-    this.c = 300;
-    this.juncplot_left = 700
-    this.juncplot_w = 200;
+    this.c = 250;
+    this.juncplot_left = 600
+    this.juncplot_w = 250;
     this.juncplot_top = this.c-this.juncplot_w/2;
     this.juncplot_h = this.juncplot_w;
     this.junction_block_max_h = 80;
@@ -323,9 +410,19 @@ class CircleGraph {
     this.block_hash = this.data.blocks.reduce((map, block) => {
       block.is_core = this.block_is_core(block.id);
       block.not_dup = this.block_is_not_dup(block.id);
+      block.in_junctions = [];
       map[block.id] = block;
       return map
     }, {});
+    
+    // DEPRECATED if (Object.keys(this.data.paths[0].blocks[0]).indexOf('annotated_seqs')>-1) {
+    //  this.get_block_annotations();
+    if (Object.keys(this.data.blocks[0]).indexOf('annotations')>-1) {
+      annotated = true;
+      console.log(this.block_hash);
+    } else {
+      annotated = false;
+    }
 
     // assigning colors
     this.colormap = {};
@@ -341,10 +438,11 @@ class CircleGraph {
     this.secondary_paths = {};
     //console.log(this.block_hash);
     this.w = 900;
-    this.svg = d3.select("#main_div").append('svg')
+    this.h = 500;
+    this.svg = d3.select("#svg_div").append('svg')
       .attr('id', 'circlegraph_svg')
       .attr('width', this.w)
-      .attr('height', this.w);
+      .attr('height', this.h);
       //.style('background-color', 'pink');
 
     //d3.select("svg").call(d3.behavior.zoom());
@@ -364,6 +462,30 @@ class CircleGraph {
     );
     return paths.length == 0;
   }
+
+  /*
+  DEPRECATED
+  get_block_annotations() {
+    for (let p of this.data.paths) {
+      let name = p.name;
+      for (let b of p.blocks) {
+        let bid = b.id;
+        let block_info = this.block_hash[bid];
+        block_info.annotations = {};
+        if (b.annotated_seqs) {
+          for (let a of Object.values(b.annotated_seqs)) {
+            // TODO should use locus id here as a key
+            let gene_key = '<p><b>'+a.gene+'</b>: '+a.annotation+'</p>';
+            if (Object.keys(block_info.annotations).indexOf(gene_key)==-1) {
+              // new annotation
+              block_info.annotations[gene_key] = a;
+            }
+          }
+        }
+      }
+    }
+  }
+  */
 
   setup_drag() {
     const self = this;
@@ -735,7 +857,7 @@ class CircleGraph {
     const diff = end-start;
     let block_subset;
     if (Math.abs(diff) > block_list.length/2) {
-      // goes around list
+      // goes around list origin
       if (diff > 0) { // counterclockwise
         block_subset = block_list.slice(0, start+1).reverse().concat(block_list.slice(end, block_list.length).reverse());
       } else {
@@ -772,6 +894,7 @@ class CircleGraph {
         if (junc.length > 2) {
           for (let bid of junc.slice(1,junc.length-1)) {
             accessory_blocks.add(bid);
+            this.block_hash[bid].in_junctions.push(fpath[i].id+'_'+fpath[j].id);
           }
           let junc_len = junc.reduce((summer, b) => {
             // using consensus seq lengths
@@ -846,23 +969,34 @@ class CircleGraph {
       .append('circle')
         .attr('class', 'juncplot_point')
         .attr('cx', (d) => this.juncplot_xscale(d.pangenomeSize))
-        .attr('cy', (d) => this.juncplot_yscale(d.nUniqueJunctions)+Math.random()*5) // JITTER
-        .attr('r', 2)
+        .attr('cy', (d) => this.juncplot_yscale(d.nUniqueJunctions)+Math.random()*10) // JITTER
+        .attr('r', 3)
         .attr('fill', '#333')
         .attr('stroke', 'red')
         .attr('stroke-width', 0)
         .on('mouseover', function(e, d)  {
           d3.select(this).attr('opacity', 0.8);
           d3.select(this).attr('stroke-width', 2);
-          d3.selectAll('.junction_block').attr('stroke-width', (td) => (td.junction == d.junction) ? 4 : 0.5)
+          d3.selectAll('.junction_block').attr('stroke-width', (td) => (td.junction == d.junction) ? 4 : (td.junction==clickedJunction) ? 6 : 0.5);
+          treeObj.draw_junction_inset(d);
         })
         .on('mouseout', function(e, d) {
           d3.select(this).attr('opacity', 1)
-          d3.select(this).attr('stroke-width', 0);
-          d3.selectAll('.junction_block').attr('stroke-width', 0.5)
+          d3.select(this).attr('stroke-width', (td) => (td.junction==clickedJunction) ? 4 : 0);
+          d3.selectAll('.junction_block')
+            .attr('stroke-width', (td) => (td.junction==clickedJunction) ? 6 : 0.5);
+          treeObj.draw_junction_inset(self.junctions[clickedJunction]);
         })
         .on('click', function(e, d) {
-          treeObj.draw_junction_inset(d);
+          if (clickedJunction == d.junction) {
+            clickedJunction = null;
+          } else {
+            clickedJunction = d.junction;
+          }
+          treeObj.draw_junction_inset(self.junctions[clickedJunction]);
+          d3.selectAll('.juncplot_point').attr('stroke-width', (td) => (td.junction==clickedJunction) ? 4 : 0);
+          d3.selectAll('.junction_block')
+            .attr('stroke-width', (td) => (td.junction==clickedJunction) ? 6 : 0.5)
         });
   }
 
@@ -870,6 +1004,7 @@ class CircleGraph {
     // draws blocks onto the outside of the circle
     // representing junction stats - n unique junctions
     // and total pangenome length
+    const self = this;
     for (let j of Object.values(this.junctions)) {
       let anchor_block_ids = j.junction.split('_')
       // TODO this is hacky, just reusing code and making sure teh strands match
@@ -885,6 +1020,16 @@ class CircleGraph {
       let insert_angle_range = 2*Math.PI * insert_len / this.total_draw_len;
       let insert_left_theta = midpoint - insert_angle_range/2;
       let insert_right_theta = midpoint + insert_angle_range/2;
+
+      this.svg.append('circle')
+        .datum(j)
+        .attr('class', 'junction_indicator')
+        .attr('fill', 'black')
+        .attr('r', 4)
+        .attr('opacity', 0)
+        .attr('cx', point_on_circle(this.c, this.c, this.focal_r+this.block_h+5, midpoint)[0])
+        .attr('cy', point_on_circle(this.c, this.c, this.focal_r+this.block_h+5, midpoint)[1])
+
       this.svg.append('path')
         .datum(j)
         .attr('class', 'junction_block')
@@ -896,15 +1041,24 @@ class CircleGraph {
           console.log(d);
           d3.select(this).attr('opacity', 0.8);
           d3.select(this).attr('stroke-width', 4);
-          d3.selectAll('.juncplot_point').attr('stroke-width', (td) => (td.junction == d.junction) ? 2 : 0)
+          d3.selectAll('.juncplot_point').attr('stroke-width', (td) => (td.junction == d.junction) ? 2 : (td.junction==clickedJunction) ? 4 : 0);
+          treeObj.draw_junction_inset(d);
         })
         .on('mouseout', function(e, d) {
           d3.select(this).attr('opacity', 1)
-          d3.select(this).attr('stroke-width', 0.5);
-          d3.selectAll('.juncplot_point').attr('stroke-width', 0)
+          d3.select(this).attr('stroke-width', (td) => (td.junction==clickedJunction) ? 6 : 0.5);
+          d3.selectAll('.juncplot_point').attr('stroke-width', (td) => (td.junction==clickedJunction) ? 4 : 0);
+          treeObj.draw_junction_inset(self.junctions[clickedJunction]);
         })
         .on('click', function(e, d) {
-          treeObj.draw_junction_inset(d);
+          if (clickedJunction == d.junction) {
+            clickedJunction = null;
+          } else {
+            clickedJunction = d.junction;
+          }
+          treeObj.draw_junction_inset(self.junctions[clickedJunction]);
+          d3.selectAll('.junction_block').attr('stroke-width', (td) => (td.junction==clickedJunction) ? 6 : 0.5);
+          d3.selectAll('.juncplot_point').attr('stroke-width', (td) => (td.junction==clickedJunction) ? 4 : 0)
         });;
     }
   }
@@ -942,7 +1096,7 @@ class CircleGraph {
       running_start += b.seq_len + this.single_path_len;
       //b.svg_position = this.get_anchors(b);
       this.focal_strands[b.path_id] = b.strand;
-      this.draw_focal_block(b)
+      this.draw_focal_block(b, greys[block_index % greys.length])
       block_index += 1
     }
     console.log(this.focal_path_use);
@@ -950,12 +1104,12 @@ class CircleGraph {
     this.get_junctions();
   }
 
-  draw_focal_block(b) {
+  draw_focal_block(b, fill_c) {
     this.svg.append('path')
       .attr('class', 'focal_block')
       .attr('stroke', '#FFF')
       .attr('stroke-width', 0.05)
-      .attr('fill', this.block_hash[b.id].is_core ? '#999' : '#949')
+      .attr('fill', fill_c)
       .attr('d', this.make_focal_path(b));
   }
 
@@ -1021,22 +1175,106 @@ function make_graph(strain_index) {
   for (let i=0; i<circlegraph.data.paths.length; i++) {
     circlegraph.draw_secondary_strain(i);
   }
-
+  setup_tooltip();
 }
 
-function goforit() {
-  d3.text(dsets[use].treefile).then(function(tree_data) {
+function load_example(ex) {
+  console.log(ex);
+  d3.selectAll('.input_stuff').remove();
+  d3.select('#form_div').append('h3')
+    .html('Example data: '+ex);
+  d3.text(dsets[ex].treefile).then(function(tree_data) {
     treeObj = new SimpleTree(tree_data, 900, 400, 500);
-    d3.json(dsets[use].graphfile).then(function(data) {
+    d3.json(dsets[ex].graphfile).then(function(data) {
       // Log the data to the console to verify it is loaded correctly
       graph_data = data;
-      make_graph(data.paths.length-1);
+      make_graph(graph_data.paths.length-1);
     }).catch(function(error) {
         console.log(error);
     });
   }).catch(function(error) {
     console.log(error);
   });
+}
+
+function goforit() {
+  if (use_test_data) {
+    load_example(use);
+  } else {
+    const graph_file_div = d3.select('#form_div').append('div');
+    graph_file_div.append('label')
+      .attr('class', 'file_in_label input_stuff')
+      .attr('for', 'graph_file_input')
+      .html('Load pangraph json file: ')
+    graph_file_div.append('input')
+      .attr('class', 'file_in input_stuff')
+      .attr('type', 'file')
+      .attr('id', 'graph_file_input')
+      .on('input', load_graph_file)
+
+    let button_holder = d3.select('#form_div').append('div')
+      .attr('id', 'button_holder')
+      .attr('class', 'input_stuff');
+
+    button_holder.append('h3')
+      .html('Or look at an example dataset:');
+      
+    button_holder.selectAll('.example_button')
+      .data(dset_names)
+      .enter()
+        .append('div')
+          .attr('class', 'example_button')
+          .html((d) => d)
+          .on('click', (e, d) => {
+            load_example(d)
+          });
+
+  }
+}
+
+function load_graph_file() {
+  d3.select('#button_holder').remove();
+  let file = document.getElementById('graph_file_input').files[0]
+  let reader = new FileReader();
+    reader.readAsText(file);
+    reader.onload = function() {
+      graph_data = JSON.parse(reader.result);
+      console.log(graph_data);
+      const tree_file_div = d3.select('#form_div').append('div');
+      tree_file_div.append('label')
+        .attr('class', 'file_in_label input_stuff')
+        .attr('for', 'tree_file_input')
+        .html('Load core tree newick file: ')
+      tree_file_div.append('input')
+        .attr('class', 'file_in input_stuff')
+        .attr('type', 'file')
+        .attr('id', 'tree_file_input')
+        .on('input', load_tree_file);
+      d3.select('#form_div').append('div')
+        .attr('class', 'example_button input_stuff')
+        .attr('id', 'load_wo_tree_button')
+        .html('Load without a tree')
+        .on('click', load_without_tree);
+    }
+}
+
+function load_without_tree() {
+  d3.select('#load_wo_tree_button').remove();
+  const tree_data = '(' + graph_data.paths.map((p) => p.name+':1').join(',') + ')';
+  treeObj = new SimpleTree(tree_data, 900, 400, 800);
+  make_graph(graph_data.paths.length-1);
+}
+
+function load_tree_file() {
+  d3.select('#load_wo_tree_button').remove();
+  let file = document.getElementById('tree_file_input').files[0]
+  let reader = new FileReader();
+    reader.readAsText(file);
+    reader.onload = function() {
+      const tree_data = reader.result;
+      treeObj = new SimpleTree(tree_data, 900, 400, 500);
+      make_graph(graph_data.paths.length-1);
+    }
 }
 
 function start_from_streamlit() {

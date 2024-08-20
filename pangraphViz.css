@@ -1,0 +1,101 @@
+
+#form_div {
+  margin: 40px;
+}
+
+#form_div div {
+  margin-top: 10px;
+}
+
+.file_in_label {
+  font-size: 20;
+}
+
+.example_button {
+  background-color: blanchedalmond;
+  border-radius: 10px;
+  padding: 5px;
+  margin: 5px;
+  float: left;
+  opacity: 0.9;
+  cursor: default;
+}
+
+.example_button:hover {
+  opacity: 0.6;
+}
+
+.example_button:active {
+  opacity: 1;
+}
+
+#svg_div {
+  position: relative;
+}
+
+.WOW_tooltip {
+  position: absolute;
+  left: 200px;
+  display: none;
+  background: white;
+  background: rgb(255,255,255, 0.8);
+  border-radius: 5px;
+  padding: 5px;
+  z-index: 3;
+  width: 200px;
+  color: black;
+  cursor: pointer;
+}
+
+.WOW_tooltip p {
+  margin: 0px;
+  padding: 0px;
+}
+
+#about_div {
+	position:relative;
+  margin-top: 90px;
+  display: block; 
+}
+
+#about_click {
+  background-color: #DDD;
+  border-radius: 10px;
+  opacity: 1;
+  width:200px;
+  cursor: default;
+  margin: 0px auto;
+  text-align: center;
+}
+#about_click:hover {
+    opacity:0.8;
+}
+#about_click:active {
+    opacity:0.5;
+}
+
+#about_text {
+    display:none;
+    text-align:left;
+    padding-left: 50px;
+    padding-right: 50px;
+}
+
+.side-by-side {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.side-by-side img {
+  max-width: 400px;
+  margin-right: 20px;
+}
+
+.side-by-side p {
+  max-width: 400px;
+}
+
+#screencap_gif {
+  width: 900px;
+}

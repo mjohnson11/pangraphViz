@@ -7,6 +7,7 @@ import streamlit.components.v1 as components
 # Title and description
 st.title("PangraphViz")
 st.write("Look at a pangraph!")
+st.write("(Best in light mode)")
 
 json_data = None
 # Radio button for reference input
@@ -68,7 +69,7 @@ if tree_string:
     # ... (JavaScript and d3 code for visualization)
     html_template = Template(
         """
-        <div id="main_div" style="width:100%"></div>
+        <div id="main_div" style="width:100%; background-color:white"></div>
         <script src="https://d3js.org/d3.v6.min.js"></script>
         <script>
         const pangraphVizData = $pangraphVizData
